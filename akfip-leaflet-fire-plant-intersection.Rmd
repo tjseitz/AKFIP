@@ -14,6 +14,7 @@ library(plyr)
 library(dplyr)
 library(tidyverse)
 library(htmltools)
+library(RColorBrewer)
 ```
 
 Read in necessary files: 
@@ -22,7 +23,7 @@ Read in necessary files:
 3. Alaska road system
 ```{r}
 fires <- st_read("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\AlaskaFireHistory_Polygons_1940_2021\\AlaskaFireHistory_Polygons_1940_2021\\AlaskaFireHistory_Polygons.gdb")  
-
+fires <- subset(fires, fires$FIREYEAR > 1979)
 plants <- read.csv("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\fire_plant_intersection.csv")
 roads <- st_read("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\Routes.gdb\\c1808f0c-470f-48d7-b5ac-9adeef804143.gdb")
 ```
@@ -55,5 +56,72 @@ roads <- st_transform(roads, 4326)
 roads <- st_zm(roads) #remove z scale from the file
 fires <- st_transform(fires, 4326) #only fires post 1979
 plants <- st_transform(plants, 4326) #only plants overlapping with fires (this is the result of the inner join)
+```
+
+Now we are going to start working on some plotting prep!
+Since we are going to color code the plant points by *rank code*, we need to get rid of any observations that don't have a ranking.
+
+```{r}
+plants <- plants[!is.na(plants$rank_code),] #started at 6557, now at 6512
+```
+
+Designate a color palette for `plants` and `fires`. (Make sure to use different ones!).We will use the library `RColorBrewer`, see color palette information [here](https://www.datanovia.com/en/blog/the-a-z-of-rcolorbrewer-palette/) or run `display.brewer.all()` to view options in R Studio. 
+```{r}
+fires_col <- colorFactor(palette = "YlOrRd",domain = fires$FIRESEASONS) #fire by fire season (decade)
+plants_rank_col <- colorNumeric(palette ="GnBu", domain= fires$rank_code)#plants by rank code
+```
+
+Now we can trying creating a basic plot! *This might be a little slow.*
+```{r}
+ak <- leaflet() %>% addTiles() %>% 
+  addPolygons(data = fires, weight = 0, fillColor = ~fires_col(FIRESEASONS), fillOpacity = 0.7) %>%
+  addLegend(data = fires, pal = fires_col, values = ~FIRESEASONS,title = "Fire season", opacity = 0.7, position = "bottomright")%>%
+  addCircleMarkers(data = plants, color = ~plants_rank_col(rank_code), fillOpacity = 0.7, radius = .1) %>%
+  addLegend(data = plants, pal = plants_rank_col, values = ~rank_code, title = "Non-native plant </br>invasiveness ranking", position = "bottomleft")
+
+ak
+```
+This plot allows you to zoom into specific regions, but you can't do much else. Let's change that.
+We are going to add some popup labels to the fires and plants to make it a bit more interactive.
+
+First, we need to create a new variable with label text in our `sf` objects.
+```{r}
+info_plants_labels <- paste(
+  "Scientific name: ",plants$scientific_name,
+  "<br>Common name: ", plants$common_name,
+  "<br>Family:", plants$family,
+  "<br>Invasiveness rank: ", plants$rank_code,
+  "<br>Plant observed year: ", plants$year_plant,
+  "<br>Fire name: ",plants$NAME_fire,
+  "<br>Fire year: ", plants$FIREYEAR) %>%
+  lapply(htmltools::HTML)
+
+info_roads_labels <- paste(
+roads$Route_Name_Desc_1,
+"<br> Unique name:", roads$Route_Name_Unique)%>%
+lapply(htmltools::HTML)
+
+info_fires_labels <- paste(
+  "Fire name:", fires$NAME,
+  "<br>Year:", fires$FIREYEAR
+) %>%
+  lapply(htmltools::HTML)
+```
+
+Second, we need to add the labels into the map code with `popup = ~info_VARIABLE_labels`.During this step we will also add in a menu to toggle different layers on or off using `addLayersControl` and designating different layers to groups.
+```{r}
+ak <- leaflet() %>% addTiles(group = "Default") %>% 
+  addProviderTiles(providers$Esri.WorldTopoMap, group = "Esri topo map")%>%
+  addPolygons(data = fires, weight = 0, fillColor = ~fires_col(FIRESEASONS), fillOpacity = 0.7, popup = ~info_fires_labels, group = "Burned area") %>%
+  addLegend(data = fires, pal = fires_col, values = ~FIRESEASONS,title = "Fire season", opacity = 0.7, position = "bottomright")%>%
+  addPolylines(data = roads, color = "gray", weight = 1, popup = ~info_roads_labels, group = "Road system")%>%
+  addCircleMarkers(data = plants, color = ~plants_rank_col(rank_code), fillOpacity = 0.7, radius = .1,label = ~info_plants_labels, group = "Non-native plants") %>%
+  addLegend(data = plants, pal = plants_rank_col, values = ~rank_code, title = "Non-native plant </br>invasiveness ranking", position = "bottomleft") %>%
+  addLayersControl(
+    baseGroups = c("Default", "Esri topo map"),
+    overlayGroups = c("Burned area", "Non-native plants","Road system"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% hideGroup("Road system") #hide the road system layer when this is generated
+ak
 ```
 
