@@ -48,3 +48,12 @@ Next we need to convert the `.csv` file to a `sf` object.
 ```{r}
 plants <- st_as_sf(plants, coords = c("longitude","latitude"),crs = "NAD83")
 ```
+
+Let's do some final conversions of the `sf` objects to make sure they are all in the same coordinate system. In this case we want them to be in [WGS84](https://epsg.io/4326) and the unique reference code needed is **4326**.
+```{r}
+roads <- st_transform(roads, 4326)
+roads <- st_zm(roads) #remove z scale from the file
+fires <- st_transform(fires, 4326) #only fires post 1979
+plants <- st_transform(plants, 4326) #only plants overlapping with fires (this is the result of the inner join)
+```
+
