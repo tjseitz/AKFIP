@@ -1,0 +1,50 @@
+---
+title: "Leaflet map with fire and plant intersections"
+output: html_document
+date: "2023-04-28"
+---
+
+Load libraries
+
+```{r}
+library(leaflet)
+library(simplevis)
+library(sf)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(htmltools)
+```
+
+Read in necessary files: 
+1. Fire polygons 
+2. Plant points (subset that overlaps with fire polygons)
+3. Alaska road system
+```{r}
+fires <- st_read("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\AlaskaFireHistory_Polygons_1940_2021\\AlaskaFireHistory_Polygons_1940_2021\\AlaskaFireHistory_Polygons.gdb")  
+
+plants <- read.csv("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\fire_plant_intersection.csv")
+roads <- st_read("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\Routes.gdb\\c1808f0c-470f-48d7-b5ac-9adeef804143.gdb")
+```
+
+Now we need to clean up the plant intersection file.
+```{r}
+#filter out any instances of "None" or "not listed" observations
+plants <- plants[!(plants$family == "None" |plants$family == "not listed"),]
+#this got rid of ~3000 observations where nothing was found at a survey site (now @17k)
+
+#filter out any observations that overlap with fires pre 1980
+plants <- subset(plants, plants$FIREYEAR > 1979)
+#removed about 5000 observations (now @12k)
+
+#now we are removing duplicates (these are due to plants being recorded again if the land burned more than one time)
+##order repeat values by year_diff column, should have same number of values
+plants = plants[order(plants[,'sample_effort_id'],plants[,'year_diff']),] 
+#filter out any duplicate instances, the most recent burn should remain
+plants = plants[!duplicated(plants$sample_effort_id),]
+```
+
+Next we need to convert the `.csv` file to a `sf` object.
+```{r}
+plants <- st_as_sf(plants, coords = c("longitude","latitude"),crs = "NAD83")
+```
