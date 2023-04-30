@@ -68,7 +68,7 @@ plants <- plants[!is.na(plants$rank_code),] #started at 6557, now at 6512
 Designate a color palette for `plants` and `fires`. (Make sure to use different ones!).We will use the library `RColorBrewer`, see color palette information [here](https://www.datanovia.com/en/blog/the-a-z-of-rcolorbrewer-palette/) or run `display.brewer.all()` to view options in R Studio. 
 ```{r}
 fires_col <- colorFactor(palette = "YlOrRd",domain = fires$FIRESEASONS) #fire by fire season (decade)
-plants_rank_col <- colorNumeric(palette ="GnBu", domain= fires$rank_code)#plants by rank code
+plants_rank_col <- colorNumeric(palette ="GnBu", domain= plants$rank_code)#plants by rank code
 ```
 
 Now we can trying creating a basic plot! *This might be a little slow.*
@@ -120,6 +120,55 @@ ak <- leaflet() %>% addTiles(group = "Default") %>%
   addLayersControl(
     baseGroups = c("Default", "Esri topo map"),
     overlayGroups = c("Burned area", "Non-native plants","Road system"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% hideGroup("Road system") #hide the road system layer when this is generated
+ak
+```
+
+Now we are going to add in the rest of the non-native plants that have been observed in the state. 
+First, we need to read in the file and do some processing (remove "none" entries and convert to `sf` object).
+```{r}
+#read in the file as a .csv
+plants_unburned <-read.csv("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\AKFIP_unburned.csv") #169,524 obs of 41 variables
+
+#remove entries that did not find any non-native plants
+plants_unburned <- plants_unburned[!(plants_unburned$family == "None" |plants_unburned$family == "not listed"),] #no change in number of obs
+
+#remove plants with no invasiveness ranking recorded
+plants_unburned <- plants_unburned[!is.na(plants_unburned$rank_code),] #this removed 1787 entries 
+
+#convert to simple feature, using WSG84 as the crs
+plants_unburned <- st_as_sf(plants_unburned, coords = c("longitude","latitude"),crs = "NAD83")
+plants_unburned <- st_transform(plants_unburned, 4326)
+```
+
+We could add this as a layer right now, but we have a little prep to do still. Let's first create a variable to use as plot labels and create a color palette (follow the same code as we did for burned plants and fires).
+```{r}
+info_plants_unburned_labels <- paste(
+  "Scientific name: ",plants_unburned$scientific_name,
+  "<br>Common name: ", plants_unburned$common_name,
+  "<br>Family:", plants_unburned$family,
+  "<br>Invasiveness rank: ", plants_unburned$rank_code,
+  "<br>Plant observed year: ", plants_unburned$plant_year) %>%
+  lapply(htmltools::HTML)
+
+#color palette
+plants_unburned_rank_col <- colorNumeric(palette ="GnBu", domain= plants_unburned$rank_code)#plants by rank code
+```
+
+Now we can add this as a layer! We have to specify which group we want it to be in so it can be toggled on and off.
+```{r}
+ak <- leaflet() %>% addTiles(group = "Default") %>% 
+  addProviderTiles(providers$Esri.WorldTopoMap, group = "Esri topo map")%>%
+  addPolygons(data = fires, weight = 0, fillColor = ~fires_col(FIRESEASONS), fillOpacity = 0.7, popup = ~info_fires_labels, group = "Burned area") %>%
+  addLegend(data = fires, pal = fires_col, values = ~FIRESEASONS,title = "Fire season", opacity = 0.7, position = "bottomright")%>%
+  addPolylines(data = roads, color = "gray", weight = 1, popup = ~info_roads_labels, group = "Road system")%>%
+  addCircleMarkers(data = plants, color = ~plants_rank_col(rank_code), fillOpacity = 0.7, radius = .1,label = ~info_plants_labels, group = "Non-native plants in burned area") %>%
+  addLegend(data = plants, pal = plants_rank_col, values = ~rank_code, title = "Non-native plant </br>invasiveness ranking", position = "bottomleft") %>%
+   addCircleMarkers(data = plants_unburned, color = ~plants_unburned_rank_col(rank_code), fillOpacity = 0.7, radius = .1,label = ~info_plants_unburned_labels, group = "Non-native plants in unburned area") %>%
+  addLayersControl(
+    baseGroups = c("Default", "Esri topo map"),
+    overlayGroups = c("Burned area", "Non-native plants in burned area", "Non-native plants in unburned area","Road system"),
     options = layersControlOptions(collapsed = FALSE)
   ) %>% hideGroup("Road system") #hide the road system layer when this is generated
 ak
