@@ -1,12 +1,18 @@
 ---
 title: "Leaflet map with fire and plant intersections"
+knit: (function(input_file, encoding) {
+    out_dir <- 'docs';
+    rmarkdown::render(input_file,
+      encoding=encoding,
+      output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+  
 output: html_document
 date: "2023-04-28"
 ---
 
 Load libraries
 
-```{r}
+```{r libraries}
 library(leaflet)
 library(simplevis)
 library(sf)
@@ -21,7 +27,7 @@ Read in necessary files:
 1. Fire polygons 
 2. Plant points (subset that overlaps with fire polygons)
 3. Alaska road system
-```{r}
+```{r read-in-files}
 fires <- st_read("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\AlaskaFireHistory_Polygons_1940_2021\\AlaskaFireHistory_Polygons_1940_2021\\AlaskaFireHistory_Polygons.gdb")  
 fires <- subset(fires, fires$FIREYEAR > 1979)
 plants <- read.csv("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\fire_plant_intersection.csv")
@@ -29,7 +35,7 @@ roads <- st_read("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\Routes.gdb\\c18
 ```
 
 Now we need to clean up the plant intersection file.
-```{r}
+```{r clean-plant-file}
 #filter out any instances of "None" or "not listed" observations
 plants <- plants[!(plants$family == "None" |plants$family == "not listed"),]
 #this got rid of ~3000 observations where nothing was found at a survey site (now @17k)
@@ -46,12 +52,12 @@ plants = plants[!duplicated(plants$sample_effort_id),]
 ```
 
 Next we need to convert the `.csv` file to a `sf` object.
-```{r}
+```{r plants-to-sf}
 plants <- st_as_sf(plants, coords = c("longitude","latitude"),crs = "NAD83")
 ```
 
 Let's do some final conversions of the `sf` objects to make sure they are all in the same coordinate system. In this case we want them to be in [WGS84](https://epsg.io/4326) and the unique reference code needed is **4326**.
-```{r}
+```{r crs-to-wgs84}
 roads <- st_transform(roads, 4326)
 roads <- st_zm(roads) #remove z scale from the file
 fires <- st_transform(fires, 4326) #only fires post 1979
@@ -61,18 +67,18 @@ plants <- st_transform(plants, 4326) #only plants overlapping with fires (this i
 Now we are going to start working on some plotting prep!
 Since we are going to color code the plant points by *rank code*, we need to get rid of any observations that don't have a ranking.
 
-```{r}
+```{r more-cleaning-plants-sf}
 plants <- plants[!is.na(plants$rank_code),] #started at 6557, now at 6512
 ```
 
 Designate a color palette for `plants` and `fires`. (Make sure to use different ones!).We will use the library `RColorBrewer`, see color palette information [here](https://www.datanovia.com/en/blog/the-a-z-of-rcolorbrewer-palette/) or run `display.brewer.all()` to view options in R Studio. 
-```{r}
+```{r color-palettes}
 fires_col <- colorFactor(palette = "YlOrRd",domain = fires$FIRESEASONS) #fire by fire season (decade)
 plants_rank_col <- colorNumeric(palette ="GnBu", domain= plants$rank_code)#plants by rank code
 ```
 
 Now we can trying creating a basic plot! *This might be a little slow.*
-```{r}
+```{r basic-plot}
 ak <- leaflet() %>% addTiles() %>% 
   addPolygons(data = fires, weight = 0, fillColor = ~fires_col(FIRESEASONS), fillOpacity = 0.7) %>%
   addLegend(data = fires, pal = fires_col, values = ~FIRESEASONS,title = "Fire season", opacity = 0.7, position = "bottomright")%>%
@@ -85,7 +91,7 @@ This plot allows you to zoom into specific regions, but you can't do much else. 
 We are going to add some popup labels to the fires and plants to make it a bit more interactive.
 
 First, we need to create a new variable with label text in our `sf` objects.
-```{r}
+```{r create-info-labels}
 info_plants_labels <- paste(
   "Scientific name: ",plants$scientific_name,
   "<br>Common name: ", plants$common_name,
@@ -109,7 +115,7 @@ info_fires_labels <- paste(
 ```
 
 Second, we need to add the labels into the map code with `popup = ~info_VARIABLE_labels`.During this step we will also add in a menu to toggle different layers on or off using `addLayersControl` and designating different layers to groups.
-```{r}
+```{r updated-plot-w-labels}
 ak <- leaflet() %>% addTiles(group = "Default") %>% 
   addProviderTiles(providers$Esri.WorldTopoMap, group = "Esri topo map")%>%
   addPolygons(data = fires, weight = 0, fillColor = ~fires_col(FIRESEASONS), fillOpacity = 0.7, popup = ~info_fires_labels, group = "Burned area") %>%
@@ -127,7 +133,7 @@ ak
 
 Now we are going to add in the rest of the non-native plants that have been observed in the state. 
 First, we need to read in the file and do some processing (remove "none" entries and convert to `sf` object).
-```{r}
+```{r read-unburn-plants}
 #read in the file as a .csv
 plants_unburned <-read.csv("C:\\Users\\Taylor\\Desktop\\wildfire_plotting\\AKFIP_unburned.csv") #169,524 obs of 41 variables
 
@@ -143,7 +149,7 @@ plants_unburned <- st_transform(plants_unburned, 4326)
 ```
 
 We could add this as a layer right now, but we have a little prep to do still. Let's first create a variable to use as plot labels and create a color palette (follow the same code as we did for burned plants and fires).
-```{r}
+```{r info-labels-unburn-plants}
 info_plants_unburned_labels <- paste(
   "Scientific name: ",plants_unburned$scientific_name,
   "<br>Common name: ", plants_unburned$common_name,
@@ -157,7 +163,7 @@ plants_unburned_rank_col <- colorNumeric(palette ="GnBu", domain= plants_unburne
 ```
 
 Now we can add this as a layer! We have to specify which group we want it to be in so it can be toggled on and off.
-```{r}
+```{r updated-plot-w-all-plants}
 ak <- leaflet() %>% addTiles(group = "Default") %>% 
   addProviderTiles(providers$Esri.WorldTopoMap, group = "Esri topo map")%>%
   addPolygons(data = fires, weight = 0, fillColor = ~fires_col(FIRESEASONS), fillOpacity = 0.7, popup = ~info_fires_labels, group = "Burned area") %>%
